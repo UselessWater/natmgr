@@ -22,15 +22,15 @@ Linux NAT 端口转发管理工具 - 基于 iptables 的简化封装，支持交
 ### 方式一：Git 克隆后安装（推荐）
 
 ```bash
-git clone https://github.com/yourusername/nat-manager.git
-cd nat-manager
+git clone https://github.com/UselessWater/natmgr.git
+cd natmgr
 sudo ./install.sh
 ```
 
 ### 方式二：直接下载单文件
 
 ```bash
-wget https://raw.githubusercontent.com/yourusername/nat-manager/main/natmgr
+wget https://raw.githubusercontent.com/UselessWater/natmgr/main/natmgr
 chmod +x natmgr
 sudo mv natmgr /usr/local/bin/
 sudo touch /etc/nat-manager.conf /var/log/nat-manager.log
@@ -77,7 +77,7 @@ natmgr [选项] [命令] [参数]
 |------|------|
 | `natmgr` | 启动交互式菜单 |
 | `natmgr add <协议> <源端口> <目标>` | 快速添加规则 |
-| `natmgr del <序号>` | 删除指定规则 |
+| `natmgr del <序号> [序号...]` | 删除指定规则（支持多个） |
 | `natmgr del all` | 删除所有规则（需确认） |
 | `natmgr list` | 查看当前规则 |
 | `natmgr save` | 保存规则到配置文件 |
@@ -107,7 +107,7 @@ natmgr del all
 natmgr del all --force
 
 # IPv6 规则管理
-natmgr -6 add tcp 8080 ::1:80
+natmgr -6 add tcp 8080 [::1]:80
 ```
 
 ## 文件结构
@@ -127,6 +127,12 @@ nat-manager/
 - 所有用户输入都经过严格验证（协议、端口、IP 格式）
 - 删除所有规则需要确认，支持 `-f/--force` 强制模式
 - 自动备份配置，保留最近 5 个版本
+
+## 支持与反馈
+
+- **问题报告**：如遇到问题，请在 GitHub Issues 提交反馈
+- **功能建议**：欢迎提交 Pull Request 或 Issue
+- **更多文档**：详细功能请参考 [USAGE.md](./USAGE.md)
 
 ## 许可证
 

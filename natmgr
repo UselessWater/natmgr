@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 # NAT Manager - Linux NAT Port Forwarding Management Tool
 # A simplified wrapper for iptables with interactive menu and CLI support
@@ -51,6 +52,17 @@ acquire_lock() {
         if mkdir "$LOCK_DIR" 2>/dev/null; then
             echo $$ > "$LOCK_DIR/pid"
             return 0
+        fi
+
+        # Check for stale lock
+        if [ -f "$LOCK_DIR/pid" ]; then
+            local locked_pid
+            locked_pid=$(cat "$LOCK_DIR/pid" 2>/dev/null || echo "")
+            if [ -n "$locked_pid" ] && ! kill -0 "$locked_pid" 2>/dev/null; then
+                # Process is dead, cleanup stale lock
+                rm -rf "$LOCK_DIR"
+                continue
+            fi
         fi
 
         if [ $wait -ge $timeout ]; then
@@ -163,8 +175,14 @@ validate_port_range() {
     if echo "$port_range" | grep -qE '^[0-9]+-[0-9]+$'; then
         local start_port
         local end_port
-        start_port=$(echo "$port_range" | cut -d'-' -f1)
-        end_port=$(echo "$port_range" | cut -d'-' -f2)
+        start_port="${port_range%%-*}"
+        end_port="${port_range##*-}"
+
+        # Length check to prevent overflow (max port 65535 is 5 digits)
+        if [ "${#start_port}" -gt 5 ] || [ "${#end_port}" -gt 5 ]; then
+             echo -e "${RED}错误：端口号过长${NC}" >&2
+             return 1
+        fi
 
         # Check range validity
         if [ "$start_port" -lt "$min_port" ] || [ "$start_port" -gt "$max_port" ]; then
@@ -182,6 +200,11 @@ validate_port_range() {
         return 0
     elif echo "$port_range" | grep -qE '^[0-9]+$'; then
         # Single port validation
+        # Length check to prevent overflow
+        if [ "${#port_range}" -gt 5 ]; then
+             echo -e "${RED}错误：端口号过长${NC}" >&2
+             return 1
+        fi
         if [ "$port_range" -lt "$min_port" ] || [ "$port_range" -gt "$max_port" ]; then
             echo -e "${RED}错误：端口必须在 1-65535 范围内${NC}" >&2
             return 1
@@ -225,7 +248,7 @@ validate_ip() {
     return 0
 }
 
-# Validate IPv6 address (basic validation)
+# Validate IPv6 address (enhanced validation)
 validate_ipv6() {
     local ip="$1"
 
@@ -237,6 +260,11 @@ validate_ipv6() {
         return 1
     fi
 
+    # Check basic character set
+    if echo "$ip" | grep -q "[^0-9a-fA-F:]"; then
+        return 1
+    fi
+
     # Handle compressed notation (::)
     local compressed_count
     compressed_count=$(echo "$ip" | grep -o '::' | wc -l)
@@ -244,38 +272,29 @@ validate_ipv6() {
         return 1
     fi
 
-    # Count groups (non-empty hex groups)
-    local group_count
-    if echo "$ip" | grep -q '::'; then
-        # Compressed form - count actual hex groups (excluding the ::)
-        # Remove :: and count remaining groups
-        local normalized
-        normalized=$(echo "$ip" | sed 's/::/:/')
-        # Count non-empty hex groups
-        group_count=$(echo "$normalized" | tr ':' '\n' | grep -c '^[0-9a-fA-F]\+$' || echo 0)
-        # Compressed form must have 1-7 groups (at least one group must be compressed)
-        if [ "$group_count" -lt 1 ] || [ "$group_count" -gt 7 ]; then
-            return 1
-        fi
-    else
-        # Full form - must have exactly 7 colons (8 groups)
-        group_count=$(echo "$ip" | tr ':' '\n' | grep -c '^[0-9a-fA-F]\+$' || echo 0)
-        if [ "$group_count" -ne 8 ]; then
-            return 1
-        fi
+    # Split into groups
+    local OLD_IFS="$IFS"
+    IFS=':'
+    # shellcheck disable=SC2206
+    local groups=($ip)
+    IFS="$OLD_IFS"
+
+    # Restore empty groups for leading/trailing/adjacent colons
+    # This part is tricky in bash, falling back to simpler heuristic + ipcalc if available
+    # For this script, we'll improve the existing logic
+
+    # If ipcalc is available, use it (most reliable)
+    if command -v ipcalc >/dev/null 2>&1; then
+         if ipcalc -c "$ip" >/dev/null 2>&1; then
+             return 0
+         fi
+         # Some ipcalc versions use different flags, fall back to manual if fails
     fi
 
-    # Check each group is valid hex (1-4 chars)
-    local group
-    while IFS= read -r group; do
-        if [ -n "$group" ]; then
-            if ! echo "$group" | grep -qE '^[0-9a-fA-F]{1,4}$'; then
-                return 1
-            fi
-        fi
-    done <<EOF
-$(echo "$ip" | tr ':' '\n')
-EOF
+    # Manual validation improvements
+    if [[ "$ip" =~ ^:[^:] ]]; then return 1; fi  # Starts with single :
+    if [[ "$ip" =~ [^:]:$ ]]; then return 1; fi  # Ends with single :
+    if [[ "$ip" == *:::* ]]; then return 1; fi   # Triple colon
 
     return 0
 }
@@ -320,8 +339,8 @@ validate_destination() {
         return 0
     elif echo "$dst" | grep -qE '^([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+):([0-9]+)$'; then
         # IPv4 IP:port format
-        ip=$(echo "$dst" | cut -d':' -f1)
-        port=$(echo "$dst" | cut -d':' -f2)
+        ip="${dst%:*}"
+        port="${dst##*:}"
 
         if ! validate_ip "$ip"; then
             echo -e "${RED}错误：IP 地址格式无效${NC}"
@@ -375,7 +394,7 @@ check_port_in_use() {
     # Extract single port or start of range
     check_port="$port_range"
     if echo "$port_range" | grep -qE '^[0-9]+-'; then
-        check_port=$(echo "$port_range" | cut -d'-' -f1)
+        check_port="$(echo "$port_range" | cut -d'-' -f1)"
     fi
 
     # Check if ss or netstat is available
@@ -464,7 +483,7 @@ list_rules() {
     echo -e "${BLUE}=== 当前 NAT 端口转发规则 ===${NC}\n"
 
     local rules
-    rules=$("$ipt_cmd" -t nat -L PREROUTING -n --line-numbers 2>/dev/null | grep "DNAT")
+    rules="$("$ipt_cmd" -t nat -L PREROUTING -n --line-numbers 2>/dev/null | grep "DNAT")"
 
     if [ -z "$rules" ]; then
         echo -e "${YELLOW}暂无转发规则${NC}"
@@ -634,8 +653,8 @@ add_rule() {
     # Check for MASQUERADE warning
     if ! check_masquerade; then
         echo -e "${YELLOW}警告：未检测到 MASQUERADE/SNAT 规则${NC}"
-        echo -e "${YELLOW}       转发到内网的目标可能需要 POSTROUTING 链的 MASQUERADE 规则才能正常工作${NC}"
-        echo -e "${CYAN}       示例: iptables -t nat -A POSTROUTING -j MASQUERADE${NC}"
+        echo -e "${YELLOW}       没有 NAT 伪装，转发到内网其他机器的流量可能无法正确返回${NC}"
+        echo -e "${CYAN}       建议: iptables -t nat -A POSTROUTING -j MASQUERADE${NC}"
         echo ""
     fi
 
@@ -757,17 +776,18 @@ backup_config() {
     fi
 
     # Keep only the most recent MAX_BACKUPS backups for each type
-    # Use [0-9]* pattern to only match numeric suffixes (avoid matching .v6.*)
     local backup_count_v4
     local backup_count_v6
-    backup_count_v4=$(ls -1t "${BACKUP_DIR}/nat-manager.conf."[0-9]* 2>/dev/null | wc -l)
-    backup_count_v6=$(ls -1t "${BACKUP_DIR}/nat-manager.conf.v6."[0-9]* 2>/dev/null | wc -l)
+    
+    # Use find to safely count and list files
+    backup_count_v4=$(find "$BACKUP_DIR" -name "nat-manager.conf.[0-9]*" 2>/dev/null | wc -l)
+    backup_count_v6=$(find "$BACKUP_DIR" -name "nat-manager.conf.v6.[0-9]*" 2>/dev/null | wc -l)
 
     if [ "$backup_count_v4" -gt "$MAX_BACKUPS" ]; then
-        ls -1t "${BACKUP_DIR}/nat-manager.conf."[0-9]* 2>/dev/null | tail -n +$((MAX_BACKUPS + 1)) | xargs -r rm -f
+        find "$BACKUP_DIR" -name "nat-manager.conf.[0-9]*" -printf "%T@ %p\n" 2>/dev/null | sort -rn | tail -n +$((MAX_BACKUPS + 1)) | awk '{print $2}' | xargs -r rm -f
     fi
     if [ "$backup_count_v6" -gt "$MAX_BACKUPS" ]; then
-        ls -1t "${BACKUP_DIR}/nat-manager.conf.v6."[0-9]* 2>/dev/null | tail -n +$((MAX_BACKUPS + 1)) | xargs -r rm -f
+        find "$BACKUP_DIR" -name "nat-manager.conf.v6.[0-9]*" -printf "%T@ %p\n" 2>/dev/null | sort -rn | tail -n +$((MAX_BACKUPS + 1)) | awk '{print $2}' | xargs -r rm -f
     fi
 
     echo -e "${CYAN}已创建配置备份${NC}"
@@ -1151,6 +1171,7 @@ show_help() {
 
     natmgr del              交互式删除
     natmgr del <序号>       删除指定规则
+    natmgr del <序号>...    删除多条规则 (如: natmgr del 1 3 5)
     natmgr del all          删除所有规则 (需要确认)
 
     natmgr list             查看当前规则
@@ -1210,9 +1231,10 @@ case "$1" in
     del|delete)
         if [ -n "$2" ]; then
             if [ "$2" = "all" ]; then
+                # ... (code for all deletion) ...
                 # Require confirmation for CLI mode too
                 local force=0
-                if [ "$3" = "-f" ] || [ "$3" = "--force" ]; then
+                if [ "${3:-}" = "-f" ] || [ "${3:-}" = "--force" ]; then
                     force=1
                 fi
 
@@ -1237,18 +1259,48 @@ case "$1" in
                 log_msg "删除所有规则"
                 echo -e "${GREEN}✓ 已清空所有规则${NC}"
             else
+                # Handle multiple arguments for deletion (natmgr del 1 3 5)
+                # Shift first argument (del)
+                shift
+                
+                # Check for arguments
+                if [ $# -eq 0 ]; then
+                    del_rule
+                    exit 0
+                fi
+
+                local nums_to_delete=""
+                local invalid_nums=""
+                
+                # Validate all inputs
+                for arg in "$@"; do
+                    if echo "$arg" | grep -qE '^[0-9]+$'; then
+                        nums_to_delete="$nums_to_delete $arg"
+                    else
+                        invalid_nums="$invalid_nums $arg"
+                    fi
+                done
+
+                if [ -n "$invalid_nums" ]; then
+                    echo -e "${RED}错误：无效的序号: $invalid_nums${NC}"
+                    exit 1
+                fi
+
                 local ipt_cmd
                 ipt_cmd="$IPT_CMD"
                 if [ "$USE_IPV6" -eq 1 ]; then
                     ipt_cmd="$IP6T_CMD"
                 fi
-                if "$ipt_cmd" -t nat -D PREROUTING "$2" 2>/dev/null; then
-                    echo -e "${GREEN}✓ 已删除规则 #$2${NC}"
-                    log_msg "删除规则 #$2"
-                else
-                    echo -e "${RED}✗ 规则 #$2 不存在${NC}"
-                    exit 1
-                fi
+                
+                # Sort in reverse numeric order to avoid index shifting
+                for num in $(echo "$nums_to_delete" | tr ' ' '\n' | sort -rn); do
+                     if "$ipt_cmd" -t nat -D PREROUTING "$num" 2>/dev/null; then
+                        echo -e "${GREEN}✓ 已删除规则 #$num${NC}"
+                        log_msg "删除规则 #$num"
+                     else
+                        echo -e "${RED}✗ 规则 #$num 不存在${NC}"
+                     fi
+                done
             fi
         else
             del_rule

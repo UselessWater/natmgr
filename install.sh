@@ -34,22 +34,29 @@ detect_and_install_iptables() {
     echo -e "${YELLOW}未检测到 iptables，正在安装...${NC}"
 
     # Detect package manager
-    if command -v apt-get &> /dev/null; then
+    local os_id=""
+    if [ -f /etc/os-release ]; then
+        # shellcheck disable=SC1091
+        . /etc/os-release
+        os_id="$ID"
+    fi
+
+    if command -v apk &> /dev/null && [ "$os_id" = "alpine" ]; then
+         # Alpine Linux (check first to avoid confusion in containers)
+         apk add --no-cache iptables
+    elif command -v apt-get &> /dev/null; then
         # Debian/Ubuntu
         apt-get update -qq
         apt-get install -y -qq iptables
+    elif command -v dnf &> /dev/null; then
+        # RHEL/CentOS 8+, Fedora (check before yum)
+        dnf install -y iptables iptables-services
     elif command -v yum &> /dev/null; then
         # RHEL/CentOS 7
         yum install -y iptables iptables-services
-    elif command -v dnf &> /dev/null; then
-        # RHEL/CentOS 8+, Fedora
-        dnf install -y iptables iptables-services
     elif command -v pacman &> /dev/null; then
         # Arch Linux
         pacman -Sy --noconfirm iptables
-    elif command -v apk &> /dev/null; then
-        # Alpine Linux
-        apk add --no-cache iptables
     elif command -v zypper &> /dev/null; then
         # openSUSE
         zypper install -y iptables
@@ -88,9 +95,12 @@ install_main_program() {
         exit 1
     fi
 
-    cp "$SCRIPT_DIR/natmgr" /usr/local/bin/natmgr
-    chmod 755 /usr/local/bin/natmgr
-    echo -e "${GREEN}✓ 主程序已安装到 /usr/local/bin/natmgr${NC}"
+    if install -m 755 "$SCRIPT_DIR/natmgr" /usr/local/bin/natmgr; then
+        echo -e "${GREEN}✓ 主程序已安装到 /usr/local/bin/natmgr${NC}"
+    else
+        echo -e "${RED}错误：安装主程序失败${NC}"
+        exit 1
+    fi
 }
 
 # Create config file with proper permissions
@@ -101,9 +111,12 @@ create_config_file() {
     check_config_permissions "$CONFIG_FILE"
 
     if [ ! -f "$CONFIG_FILE" ]; then
-        touch "$CONFIG_FILE"
-        chmod 600 "$CONFIG_FILE"
-        echo -e "${GREEN}✓ 配置文件已创建: $CONFIG_FILE${NC}"
+        if install -m 600 /dev/null "$CONFIG_FILE"; then
+            echo -e "${GREEN}✓ 配置文件已创建: $CONFIG_FILE${NC}"
+        else
+            echo -e "${RED}错误：创建配置文件失败${NC}"
+            exit 1
+        fi
     else
         echo -e "${YELLOW}配置文件已存在: $CONFIG_FILE${NC}"
         chmod 600 "$CONFIG_FILE"
@@ -119,18 +132,27 @@ create_log_file() {
     echo -e "\n${BLUE}正在创建日志文件...${NC}"
 
     if [ ! -f "$LOG_FILE" ]; then
-        touch "$LOG_FILE"
-        chmod 644 "$LOG_FILE"
-        echo -e "${GREEN}✓ 日志文件已创建: $LOG_FILE${NC}"
+        if install -m 664 /dev/null "$LOG_FILE"; then
+            echo -e "${GREEN}✓ 日志文件已创建: $LOG_FILE${NC}"
+        else
+            echo -e "${RED}错误：创建日志文件失败${NC}"
+            exit 1
+        fi
     else
         echo -e "${YELLOW}日志文件已存在: $LOG_FILE${NC}"
-        chmod 644 "$LOG_FILE"
+        chmod 664 "$LOG_FILE"
         echo -e "${GREEN}✓ 已确保日志文件权限正确${NC}"
     fi
 }
 
 # Create systemd service
 create_systemd_service() {
+    # Check if systemd is available
+    if ! command -v systemctl >/dev/null 2>&1 || ! pidof systemd >/dev/null 2>&1; then
+        echo -e "\n${YELLOW}未检测到 systemd 环境，跳过自动恢复服务配置${NC}"
+        return
+    fi
+
     echo -e "\n${BLUE}是否创建 systemd 开机自动恢复服务?${NC}"
     read -rp "请输入 [y/N]: " create_service
 
