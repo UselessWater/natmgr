@@ -22,7 +22,7 @@ Linux NAT 端口转发管理工具 - 基于 iptables 的简化封装，支持交
 ### 方式一：Git 克隆后安装（推荐）
 
 ```bash
-git clone https://github.com/yourusername/nat-manager.git
+git clone https://github.com/UselessWater/natmgr
 cd nat-manager
 sudo ./install.sh
 ```
@@ -30,7 +30,7 @@ sudo ./install.sh
 ### 方式二：直接下载单文件
 
 ```bash
-wget https://raw.githubusercontent.com/yourusername/nat-manager/main/natmgr
+wget https://raw.githubusercontent.com/UselessWater/nat-manager/master/natmgr
 chmod +x natmgr
 sudo mv natmgr /usr/local/bin/
 sudo touch /etc/nat-manager.conf /var/log/nat-manager.log
