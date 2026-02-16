@@ -12,7 +12,7 @@ Linux NAT 端口转发管理工具 - 基于 iptables 的简化封装，支持交
 - ✅ **开机自动恢复** - 可选 systemd 服务，开机自动应用规则
 - ✅ **命令行快速操作** - 支持非交互式脚本调用
 - ✅ **彩色输出** - 友好的终端显示效果
-- ✅ **IPv6 支持** - 通过 `-6` 参数支持 IPv6 规则管理
+- ✅ **IPv6 支持** - 完整支持 IPv6 双栈（使用 `-6` 参数）
 - ✅ **配置备份** - 自动保留最近 5 个配置备份
 - ✅ **规则去重** - 添加前检查是否已存在相同规则
 - ✅ **端口占用检查** - 添加前检查端口是否被本机服务占用
@@ -22,15 +22,15 @@ Linux NAT 端口转发管理工具 - 基于 iptables 的简化封装，支持交
 ### 方式一：Git 克隆后安装（推荐）
 
 ```bash
-git clone https://github.com/UselessWater/natmgr.git
-cd natmgr
+git clone https://github.com/yourusername/nat-manager.git
+cd nat-manager
 sudo ./install.sh
 ```
 
 ### 方式二：直接下载单文件
 
 ```bash
-wget https://raw.githubusercontent.com/UselessWater/natmgr/main/natmgr
+wget https://raw.githubusercontent.com/yourusername/nat-manager/main/natmgr
 chmod +x natmgr
 sudo mv natmgr /usr/local/bin/
 sudo touch /etc/nat-manager.conf /var/log/nat-manager.log
@@ -77,7 +77,7 @@ natmgr [选项] [命令] [参数]
 |------|------|
 | `natmgr` | 启动交互式菜单 |
 | `natmgr add <协议> <源端口> <目标>` | 快速添加规则 |
-| `natmgr del <序号> [序号...]` | 删除指定规则（支持多个） |
+| `natmgr del <序号>` | 删除指定规则 |
 | `natmgr del all` | 删除所有规则（需确认） |
 | `natmgr list` | 查看当前规则 |
 | `natmgr save` | 保存规则到配置文件 |
@@ -106,7 +106,7 @@ natmgr del all
 # 强制删除所有规则（无需确认）
 natmgr del all --force
 
-# IPv6 规则管理
+# IPv6 规则管理（使用方括号表示法）
 natmgr -6 add tcp 8080 [::1]:80
 ```
 
@@ -116,9 +116,11 @@ natmgr -6 add tcp 8080 [::1]:80
 nat-manager/
 ├── natmgr          # 主程序脚本
 ├── install.sh      # 安装脚本
-├── README.md       # 项目说明
-├── USAGE.md        # 详细使用文档
-└── .gitignore      # Git 忽略配置
+├── README.md           # 项目说明
+├── USAGE-v2.0.0.md     # 详细使用文档（当前版本）
+├── USAGE-v1.0.0.md     # v1.0.0 历史文档
+├── CHANGELOG.md        # 版本更新日志
+└── .gitignore          # Git 忽略配置
 ```
 
 ## 安全说明
@@ -127,12 +129,6 @@ nat-manager/
 - 所有用户输入都经过严格验证（协议、端口、IP 格式）
 - 删除所有规则需要确认，支持 `-f/--force` 强制模式
 - 自动备份配置，保留最近 5 个版本
-
-## 支持与反馈
-
-- **问题报告**：如遇到问题，请在 GitHub Issues 提交反馈
-- **功能建议**：欢迎提交 Pull Request 或 Issue
-- **更多文档**：详细功能请参考 [USAGE.md](./USAGE.md)
 
 ## 许可证
 

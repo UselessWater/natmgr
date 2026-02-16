@@ -1,5 +1,7 @@
 # NAT Manager 使用文档
 
+v1.0.0文档：
+
 NAT Manager 是一个基于 iptables 的 Linux NAT 端口转发管理工具。它提供了交互式菜单和命令行两种操作模式，简化了端口转发规则的配置和管理。
 
 ## 目录
@@ -10,9 +12,8 @@ NAT Manager 是一个基于 iptables 的 Linux NAT 端口转发管理工具。�
 4. [功能详解](#功能详解)
 5. [常见使用场景](#常见使用场景)
 6. [故障排查](#故障排查)
-7. [IPv6 支持](#ipv6-支持)
-8. [注意事项](#注意事项)
-9. [卸载方法](#卸载方法)
+7. [注意事项](#注意事项)
+8. [卸载方法](#卸载方法)
 
 ---
 
@@ -74,10 +75,9 @@ sudo natmgr
   4) 保存规则配置
   5) 恢复规则配置
   6) 查看操作日志
-  7) 卸载脚本
   0) 退出
 
-请选择操作 [0-7]:
+请选择操作 [0-6]:
 ```
 
 ### 命令行模式
@@ -145,7 +145,7 @@ natmgr add <协议> <源端口> <目标>
 |------|------|------|
 | 协议 | tcp / udp / both | tcp |
 | 源端口 | 外部端口或范围 | 8080 或 20000-30000 |
-| 目标 | 端口 或 IP:端口 或 [IPv6]:端口 | 80 或 192.168.1.10:80 |
+| 目标 | 端口 或 IP:端口 | 80 或 192.168.1.10:80 |
 
 **示例**：
 
@@ -341,16 +341,7 @@ echo "net.ipv4.ip_forward=1" | sudo tee -a /etc/sysctl.conf
 sudo sysctl -p
 ```
 
-**原因2**：未配置 NAT 伪装（MASQUERADE）。
-
-**解决**：
-如果转发流量经过内网，回包可能找不到路。需要添加 MASQUERADE 规则：
-```bash
-# 添加 POSTROUTING 伪装
-sudo iptables -t nat -A POSTROUTING -j MASQUERADE
-```
-
-**原因3**：防火墙阻止了转发。
+**原因2**：防火墙阻止了转发。
 
 **解决**：
 ```bash
@@ -385,40 +376,6 @@ cat /etc/nat-manager.conf
 sudo rm /etc/nat-manager.conf
 sudo natmgr save
 ```
-
----
-
-## IPv6 支持
-
-NAT Manager 完全支持 IPv6 端口转发。
-
-### 启用 IPv6 模式
-
-使用 `-6` 参数即可启用 IPv6 模式进行操作（包括添加、删除、查看、保存）。
-
-```bash
-# 启动 IPv6 交互菜单
-sudo natmgr -6
-```
-
-### 命令行操作
-
-```bash
-# 添加规则：将本地 [::]:8080 转发到内网 [2001:db8::1]:80
-sudo natmgr -6 add tcp 8080 [2001:db8::1]:80
-
-# 查看 IPv6 规则
-sudo natmgr -6 list
-
-# 保存 IPv6 配置（保存到 /etc/nat-manager.conf.v6）
-sudo natmgr -6 save
-```
-
-### 注意事项
-
-- 目标地址如果是 IPv6，必须使用方括号包裹，例如 `[2001:db8::1]:80`
-- 确保系统已启用 IPv6 转发 (`sysctl net.ipv6.conf.all.forwarding=1`)
-- IPv4 和 IPv6 规则是分开存储和管理的
 
 ---
 
