@@ -22,21 +22,29 @@ Linux NAT 端口转发管理工具 - 基于 iptables 的简化封装，支持交
 ### 方式一：Git 克隆后安装（推荐）
 
 ```bash
+# 安装完成后可删除克隆的项目代码
 git clone https://github.com/UselessWater/natmgr
 cd nat-manager
 sudo ./install.sh
 ```
 
-### 方式二：直接下载单文件
+### 方式二：直接下载单文件，全手动安装
 
 ```bash
-wget https://raw.githubusercontent.com/UselessWater/nat-manager/master/natmgr
+wget https://raw.githubusercontent.com/UselessWater/natmgr/master/natmgr
 chmod +x natmgr
 sudo mv natmgr /usr/local/bin/
 sudo touch /etc/nat-manager.conf /var/log/nat-manager.log
 sudo chmod 600 /etc/nat-manager.conf
 ```
 
+### 方式三：手动下载,然后自动安装
+
+```bash
+# 下载对应版本的代码后，解压，执行./install.sh即可安装，安装完成后，可删除项目代码。
+cd natmgr 
+sudo ./install.sh
+```
 ### 支持的系统
 
 - Debian/Ubuntu (apt-get)
