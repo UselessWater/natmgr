@@ -114,9 +114,10 @@ natmgr -6 add tcp 8080 [::1]:80
 
 ```
 nat-manager/
-├── natmgr          # 主程序脚本
-├── install.sh      # 安装脚本
+├── natmgr              # 主程序脚本
+├── install.sh          # 安装脚本
 ├── README.md           # 项目说明
+├── test.md             # 开发时，本地测试文档指导，需要docker
 ├── USAGE-v2.0.0.md     # 详细使用文档（当前版本）
 ├── USAGE-v1.0.0.md     # v1.0.0 历史文档
 ├── CHANGELOG.md        # 版本更新日志
