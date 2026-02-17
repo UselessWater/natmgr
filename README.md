@@ -16,6 +16,7 @@ Linux NAT 端口转发管理工具 - 基于 iptables 的简化封装，支持交
 - ✅ **配置备份** - 自动保留最近 5 个配置备份
 - ✅ **规则去重** - 添加前检查是否已存在相同规则
 - ✅ **端口占用检查** - 添加前检查端口是否被本机服务占用
+- ✅ **转发日志跟踪** - 实时查看 NAT 连接追踪（需要 conntrack）
 
 ## 安装说明
 
@@ -91,6 +92,7 @@ natmgr [选项] [命令] [参数]
 | `natmgr save` | 保存规则到配置文件 |
 | `natmgr load` | 从配置文件恢复规则 |
 | `natmgr log` | 查看操作日志 |
+| `natmgr trace` | 查看转发日志跟踪（需要 conntrack） |
 | `natmgr uninstall` | 卸载 NAT Manager |
 
 ### 示例

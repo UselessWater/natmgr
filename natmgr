@@ -960,6 +960,531 @@ view_log() {
     fi
 }
 
+# Check if conntrack is installed
+check_conntrack() {
+    if command -v conntrack >/dev/null 2>&1; then
+        return 0
+    fi
+    return 1
+}
+
+# Get conntrack status text for menu
+get_conntrack_status() {
+    if check_conntrack; then
+        echo -e "${GREEN}已安装${NC}"
+    else
+        echo -e "${YELLOW}未安装${NC}"
+    fi
+}
+
+# Detect package manager
+get_pkg_manager() {
+    if command -v apt-get >/dev/null 2>&1; then
+        echo "apt-get"
+    elif command -v yum >/dev/null 2>&1; then
+        echo "yum"
+    elif command -v dnf >/dev/null 2>&1; then
+        echo "dnf"
+    elif command -v pacman >/dev/null 2>&1; then
+        echo "pacman"
+    elif command -v apk >/dev/null 2>&1; then
+        echo "apk"
+    fi
+}
+
+# Get conntrack package name for each package manager
+get_conntrack_pkg_name() {
+    local pkg_manager="$1"
+    case $pkg_manager in
+        apt-get)
+            echo "conntrack"
+            ;;
+        yum|dnf)
+            echo "conntrack-tools"
+            ;;
+        pacman)
+            echo "conntrack-tools"
+            ;;
+        apk)
+            echo "conntrack-tools"
+            ;;
+        *)
+            echo "conntrack-tools"
+            ;;
+    esac
+}
+
+# Uninstall conntrack
+uninstall_conntrack() {
+    echo ""
+    read -rp "确定要卸载 conntrack 吗? [y/N]: " confirm
+    case "$confirm" in
+        [Yy]*)
+            echo ""
+            echo "正在卸载 conntrack..."
+
+            local pkg_manager
+            pkg_manager=$(get_pkg_manager)
+
+            if [ -z "$pkg_manager" ]; then
+                echo -e "${RED}错误：无法检测到支持的包管理器${NC}"
+                return 1
+            fi
+
+            local pkg_name
+            pkg_name=$(get_conntrack_pkg_name "$pkg_manager")
+            local uninstall_success=0
+
+            case $pkg_manager in
+                apt-get)
+                    apt-get remove -y "$pkg_name" && uninstall_success=1
+                    ;;
+                yum)
+                    yum remove -y "$pkg_name" && uninstall_success=1
+                    ;;
+                dnf)
+                    dnf remove -y "$pkg_name" && uninstall_success=1
+                    ;;
+                pacman)
+                    pacman -R --noconfirm "$pkg_name" && uninstall_success=1
+                    ;;
+                apk)
+                    apk del "$pkg_name" && uninstall_success=1
+                    ;;
+            esac
+
+            if [ $uninstall_success -eq 1 ]; then
+                echo ""
+                echo -e "${GREEN}✓ conntrack 已卸载${NC}"
+                log_msg "卸载 conntrack"
+            else
+                echo ""
+                echo -e "${RED}✗ conntrack 卸载失败${NC}"
+                return 1
+            fi
+            ;;
+        *)
+            echo -e "${YELLOW}已取消卸载${NC}"
+            return 1
+            ;;
+    esac
+}
+
+# Install conntrack
+install_conntrack() {
+    echo -e "${BLUE}=== conntrack 工具管理 ===${NC}\n"
+
+    if check_conntrack; then
+        local version
+        version=$(conntrack --version 2>/dev/null | head -1)
+        echo -e "当前状态: ${GREEN}已安装${NC}"
+        echo "版本: $version"
+        echo ""
+        echo "操作选项："
+        echo "  1) 重新安装 conntrack"
+        echo "  2) 卸载 conntrack"
+        echo "  3) 返回上级菜单"
+        echo ""
+        read -rp "请选择 [1-3]: " choice
+        case $choice in
+            1)
+                # Continue to installation flow below
+                echo ""
+                echo "正在重新安装 conntrack..."
+                ;;
+            2)
+                uninstall_conntrack
+                return $?
+                ;;
+            *)
+                return 0
+                ;;
+        esac
+    else
+        echo -e "当前状态: ${YELLOW}未安装${NC}"
+        echo ""
+        echo -e "${CYAN}conntrack 可以实时显示经过 NAT 的连接追踪信息，${NC}"
+        echo -e "${CYAN}包括原始跳跃端口和目标端口的映射关系。${NC}"
+        echo ""
+        echo "操作选项："
+        echo "  1) 安装 conntrack"
+        echo "  2) 返回上级菜单"
+        echo ""
+
+        read -rp "请选择 [1-2]: " choice
+        case $choice in
+            1)
+                echo ""
+                echo "正在安装 conntrack..."
+                ;;
+            *)
+                return 1
+                ;;
+        esac
+    fi
+
+    echo ""
+
+    local pkg_manager
+    pkg_manager=$(get_pkg_manager)
+
+    if [ -z "$pkg_manager" ]; then
+        echo -e "${RED}错误：无法检测到支持的包管理器${NC}"
+        echo -e "${YELLOW}请手动安装 conntrack 工具${NC}"
+        return 1
+    fi
+
+    local install_success=0
+    local pkg_name
+    pkg_name=$(get_conntrack_pkg_name "$pkg_manager")
+
+    case $pkg_manager in
+        apt-get)
+            apt-get update && apt-get install -y "$pkg_name" && install_success=1
+            ;;
+        yum)
+            yum install -y "$pkg_name" && install_success=1
+            ;;
+        dnf)
+            dnf install -y "$pkg_name" && install_success=1
+            ;;
+        pacman)
+            pacman -S --noconfirm "$pkg_name" && install_success=1
+            ;;
+        apk)
+            apk add "$pkg_name" && install_success=1
+            ;;
+    esac
+
+    if [ $install_success -eq 1 ] && check_conntrack; then
+        local version
+        version=$(conntrack --version 2>/dev/null | head -1)
+        echo ""
+        echo -e "${GREEN}✓ conntrack 安装成功！${NC}"
+        echo ""
+        echo "版本: $version"
+        log_msg "安装 conntrack: $version"
+        return 0
+    else
+        echo ""
+        echo -e "${RED}✗ conntrack 安装失败${NC}"
+        return 1
+    fi
+}
+
+# Parse conntrack line and extract connection info
+parse_conntrack_line() {
+    local line="$1"
+    local direction="$2"  # in, out, or both
+
+    # Example line format:
+    # udp 17 src=192.168.1.100 dst=10.0.0.1 sport=54321 dport=20003 [UNREPLIED] src=10.0.0.1 dst=192.168.1.100 sport=12345 dport=54321
+
+    local proto=""
+    local client_ip=""
+    local client_port=""
+    local hop_port=""
+    local target_port=""
+    local state="ESTABLISHED"
+    local duration=""
+
+    # Extract protocol
+    proto=$(echo "$line" | awk '{print $1}')
+
+    # Extract state if present
+    if echo "$line" | grep -q '\[UNREPLIED\]'; then
+        state="UNREPLIED"
+    elif echo "$line" | grep -q 'ASSURED'; then
+        state="ASSURED"
+    fi
+
+    # For incoming traffic (client -> server)
+    if [ "$direction" = "in" ] || [ "$direction" = "both" ]; then
+        # Original direction: client info
+        client_ip=$(echo "$line" | grep -o 'src=[0-9.]*' | head -1 | cut -d'=' -f2)
+        client_port=$(echo "$line" | grep -o 'sport=[0-9]*' | head -1 | cut -d'=' -f2)
+        # Destination port in original direction is the hop port
+        hop_port=$(echo "$line" | grep -o 'dport=[0-9]*' | head -1 | cut -d'=' -f2)
+        # Reply source port is the target port
+        target_port=$(echo "$line" | grep -o 'sport=[0-9]*' | tail -1 | cut -d'=' -f2)
+    fi
+
+    # For outgoing traffic (server -> client)
+    if [ "$direction" = "out" ]; then
+        # Reply direction shows server perspective
+        client_ip=$(echo "$line" | grep -o 'dst=[0-9.]*' | tail -1 | cut -d'=' -f2)
+        client_port=$(echo "$line" | grep -o 'dport=[0-9]*' | tail -1 | cut -d'=' -f2)
+        target_port=$(echo "$line" | grep -o 'sport=[0-9]*' | tail -1 | cut -d'=' -f2)
+        hop_port=$(echo "$line" | grep -o 'dport=[0-9]*' | head -1 | cut -d'=' -f2)
+    fi
+
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$proto" "$client_ip:$client_port" "$hop_port" "$target_port" "$state" "$duration"
+}
+
+# Display conntrack results in formatted table
+display_conntrack_result() {
+    local proto="$1"
+    local target_port="$2"
+    local direction="$3"
+    local output="$4"
+
+    echo ""
+    echo -e "${BLUE}=== 转发到端口 $target_port 的连接 ===${NC}"
+    echo ""
+
+    local dir_text=""
+    case $direction in
+        in) dir_text="进入(IN)" ;;
+        out) dir_text="发出(OUT)" ;;
+        both) dir_text="双向" ;;
+    esac
+
+    local count=0
+    if [ -n "$output" ]; then
+        count=$(echo "$output" | grep -c '^[a-z]' || echo 0)
+    fi
+
+    if [ -z "$output" ] || [ "$count" -eq 0 ]; then
+        echo -e "${YELLOW}暂无转发到该端口的 ${dir_text} 流量${NC}"
+        echo ""
+        echo -e "${CYAN}提示：${NC}"
+        echo "  • 请确认目标端口正确且有服务监听"
+        echo "  • 请确认有客户端连接到转发端口"
+        echo "  • UDP 连接可能需要先收到数据包才会显示"
+        return 1
+    fi
+
+    echo -e "协议: ${CYAN}${proto:-全部}${NC}  |  目标端口: ${CYAN}$target_port${NC}  |  方向: ${CYAN}$dir_text${NC}  |  找到 ${GREEN}$count${NC} 个连接"
+    echo ""
+    echo "-----------------------------------------------------------------------------------------------"
+    printf "%-5s %-22s %-12s %-12s %-15s\n" "序号" "客户端地址" "跳跃端口" "目标端口" "状态"
+    echo "-----------------------------------------------------------------------------------------------"
+
+    local idx=0
+    while IFS= read -r line; do
+        [ -z "$line" ] && continue
+        idx=$((idx + 1))
+
+        local conn_proto=""
+        local client_addr=""
+        local hop_port=""
+        local target_p=""
+        local state=""
+
+        # Parse the conntrack line
+        conn_proto=$(echo "$line" | awk '{print $1}')
+
+        # Determine state
+        state="ESTABLISHED"
+        if echo "$line" | grep -q '\[UNREPLIED\]'; then
+            state="NEW/UNREPLIED"
+        fi
+
+        # Extract connection info based on direction
+        if [ "$direction" = "in" ]; then
+            # Incoming: src=client, dport=hop_port, reply sport=target
+            local src_ip=$(echo "$line" | grep -oE 'src=[0-9.]+' | head -1 | cut -d'=' -f2)
+            local src_port=$(echo "$line" | grep -oE 'sport=[0-9]+' | head -1 | cut -d'=' -f2)
+            client_addr="${src_ip}:${src_port}"
+            hop_port=$(echo "$line" | grep -oE 'dport=[0-9]+' | head -1 | cut -d'=' -f2)
+            target_p=$(echo "$line" | grep -oE 'sport=[0-9]+' | tail -1 | cut -d'=' -f2)
+        elif [ "$direction" = "out" ]; then
+            # Outgoing: reply dst=client, sport=target
+            local dst_ip=$(echo "$line" | grep -oE 'dst=[0-9.]+' | tail -1 | cut -d'=' -f2)
+            local dst_port=$(echo "$line" | grep -oE 'dport=[0-9]+' | tail -1 | cut -d'=' -f2)
+            client_addr="${dst_ip}:${dst_port}"
+            target_p=$(echo "$line" | grep -oE 'sport=[0-9]+' | tail -1 | cut -d'=' -f2)
+            hop_port=$(echo "$line" | grep -oE 'dport=[0-9]+' | head -1 | cut -d'=' -f2)
+        else
+            # Both: show incoming perspective
+            local src_ip=$(echo "$line" | grep -oE 'src=[0-9.]+' | head -1 | cut -d'=' -f2)
+            local src_port=$(echo "$line" | grep -oE 'sport=[0-9]+' | head -1 | cut -d'=' -f2)
+            client_addr="${src_ip}:${src_port}"
+            hop_port=$(echo "$line" | grep -oE 'dport=[0-9]+' | head -1 | cut -d'=' -f2)
+            target_p=$(echo "$line" | grep -oE 'sport=[0-9]+' | tail -1 | cut -d'=' -f2)
+        fi
+
+        printf "%-5s %-22s %-12s %-12s %-15s\n" "$idx" "$client_addr" "$hop_port" "$target_p" "$state"
+    done <<< "$output"
+
+    echo "-----------------------------------------------------------------------------------------------"
+    echo ""
+    echo -e "${CYAN}连接解读：${NC}"
+    echo "  • 第1列: 客户端 IP 和端口"
+    echo "  • 第2列: 客户端连接的跳跃端口（NAT 入口）"
+    echo "  • 第3列: 转发后的目标端口（实际服务端口）"
+    echo ""
+    return 0
+}
+
+# Query incoming traffic
+query_trace_in() {
+    local target_port="$1"
+    local proto="${2:-all}"
+
+    local cmd="conntrack -L -p $proto --reply-port-src $target_port 2>/dev/null"
+    if [ "$proto" = "all" ] || [ "$proto" = "both" ]; then
+        # Query both tcp and udp
+        local output=""
+        output=$(conntrack -L -p tcp --reply-port-src "$target_port" 2>/dev/null)
+        output="${output}$(conntrack -L -p udp --reply-port-src "$target_port" 2>/dev/null)"
+        echo "$output"
+    else
+        conntrack -L -p "$proto" --reply-port-src "$target_port" 2>/dev/null
+    fi
+}
+
+# Query outgoing traffic
+query_trace_out() {
+    local target_port="$1"
+    local proto="${2:-all}"
+
+    local cmd="conntrack -L -p $proto --orig-port-src $target_port 2>/dev/null"
+    if [ "$proto" = "all" ] || [ "$proto" = "both" ]; then
+        local output=""
+        output=$(conntrack -L -p tcp --orig-port-src "$target_port" 2>/dev/null)
+        output="${output}$(conntrack -L -p udp --orig-port-src "$target_port" 2>/dev/null)"
+        echo "$output"
+    else
+        conntrack -L -p "$proto" --orig-port-src "$target_port" 2>/dev/null
+    fi
+}
+
+# Query both directions
+query_trace_both() {
+    local target_port="$1"
+    local proto="${2:-all}"
+
+    local output=""
+    # For both, we query by reply-port-src which shows incoming connections
+    output=$(query_trace_in "$target_port" "$proto")
+    echo "$output"
+}
+
+# Main trace log menu
+view_trace_menu() {
+    while true; do
+        clear
+        echo -e "${BLUE}=== 转发日志跟踪 ===${NC}"
+        echo ""
+
+        if ! check_conntrack; then
+            echo -e "当前状态: ${YELLOW}conntrack 未安装${NC}"
+            echo ""
+            echo "操作选项："
+            echo "  1) 安装 conntrack"
+            echo "  2) 返回主菜单"
+            echo ""
+
+            read -rp "请选择 [1-2]: " choice
+            case $choice in
+                1)
+                    echo ""
+                    if install_conntrack; then
+                        read -rp "按回车键继续..."
+                    else
+                        read -rp "按回车键返回..."
+                        return
+                    fi
+                    ;;
+                *)
+                    return
+                    ;;
+            esac
+            continue
+        fi
+
+        echo -e "conntrack 状态: ${GREEN}已安装${NC}"
+        echo ""
+        echo "请选择要查看的方向："
+        echo ""
+        echo "  1) 查看进入(IN)的流量   (外部 → 本机服务端口)"
+        echo "  2) 查看发出(OUT)的流量  (本机服务端口 → 外部)"
+        echo "  3) 查看双向流量"
+        echo "  4) 重新安装/管理 conntrack"
+        echo "  5) 返回主菜单"
+        echo ""
+
+        read -rp "请选择 [1-5]: " choice
+
+        case $choice in
+            1|2|3)
+                echo ""
+                read -rp "请输入目标端口（如：12345）: " target_port
+
+                if ! validate_port_range "$target_port"; then
+                    echo ""
+                    read -rp "按回车键继续..."
+                    continue
+                fi
+
+                echo ""
+                echo "选择协议："
+                echo "  1) TCP"
+                echo "  2) UDP"
+                echo "  3) TCP + UDP"
+                echo ""
+                read -rp "请选择 [1-3]: " proto_choice
+
+                local proto="all"
+                case $proto_choice in
+                    1) proto="tcp" ;;
+                    2) proto="udp" ;;
+                    3) proto="both" ;;
+                esac
+
+                local output=""
+                local direction=""
+
+                case $choice in
+                    1)
+                        direction="in"
+                        output=$(query_trace_in "$target_port" "$proto")
+                        ;;
+                    2)
+                        direction="out"
+                        output=$(query_trace_out "$target_port" "$proto")
+                        ;;
+                    3)
+                        direction="both"
+                        output=$(query_trace_both "$target_port" "$proto")
+                        ;;
+                esac
+
+                display_conntrack_result "$proto" "$target_port" "$direction" "$output"
+
+                echo ""
+                echo "操作："
+                echo "  [R] 刷新  [B] 返回"
+                echo ""
+                read -rp "请选择操作: " action
+
+                case "$action" in
+                    [Rr])
+                        # Refresh - loop back with same parameters
+                        continue
+                        ;;
+                    *)
+                        # Return to trace menu
+                        ;;
+                esac
+                ;;
+            4)
+                echo ""
+                install_conntrack
+                read -rp "按回车键继续..."
+                ;;
+            5)
+                return
+                ;;
+            *)
+                echo -e "${RED}无效选择${NC}"
+                read -rp "按回车键继续..."
+                ;;
+        esac
+    done
+}
+
 # Uninstall
 uninstall_natmgr() {
     echo -e "${RED}=== 卸载 NAT Manager ===${NC}\n"
@@ -1123,6 +1648,7 @@ show_menu() {
     local count
     count=$("$IPT_CMD" -t nat -L PREROUTING -n 2>/dev/null | grep -c "DNAT")
     echo -e "当前规则数: ${GREEN}$count${NC}  |  配置: ${CYAN}$CONFIG_FILE${NC}"
+    echo -e "conntrack: $(get_conntrack_status)"
     echo ""
 
     echo "  1) 查看当前规则"
@@ -1132,9 +1658,10 @@ show_menu() {
     echo "  5) 恢复规则配置"
     echo "  6) 查看操作日志"
     echo "  7) 卸载脚本"
+    echo "  8) 查看转发日志跟踪"
     echo "  0) 退出"
     echo ""
-    read -rp "请选择操作 [0-7]: " choice
+    read -rp "请选择操作 [0-8]: " choice
 
     case $choice in
         1) list_rules ;;
@@ -1144,6 +1671,7 @@ show_menu() {
         5) load_rules ;;
         6) view_log ;;
         7) uninstall_natmgr; return ;;
+        8) view_trace_menu ;;
         0) exit 0 ;;
         *) echo -e "${RED}无效选择${NC}" ;;
     esac
@@ -1179,8 +1707,12 @@ show_help() {
     natmgr save             保存规则到配置文件
     natmgr load             从配置文件恢复规则
     natmgr log              查看操作日志
+    natmgr trace            查看转发日志跟踪（需要 conntrack）
     natmgr uninstall        卸载 NAT Manager
     natmgr help             显示此帮助
+
+转发日志跟踪命令:
+    natmgr trace            启动交互式转发日志跟踪菜单
 
 示例:
     natmgr add udp 20000-30000 12345          # UDP转发到本机
@@ -1329,6 +1861,9 @@ case "$1" in
         ;;
     log|logs)
         view_log
+        ;;
+    trace|tracking)
+        view_trace_menu
         ;;
     uninstall|remove)
         uninstall_natmgr

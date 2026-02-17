@@ -221,7 +221,7 @@ docker run --rm -it \
   ubuntu:24.04 bash
 
 # 在容器内安装依赖
-apt-get update && apt-get install -y iptables iputils-ping netcat-openbsd
+apt-get update && apt-get install -y iptables iputils-ping netcat-openbsd conntrack
 ```
 
 功能开发完成后，按以下流程进行手动测试验证：
@@ -272,7 +272,42 @@ apt-get update && apt-get install -y iptables iputils-ping netcat-openbsd
 - 执行若干操作后检查 `/var/log/nat-manager.log`
 - 确认每条操作都有时间戳记录
 
-### 8. 安装脚本测试（如修改了 install.sh）
+### 8. 转发日志跟踪测试
+
+```bash
+# 安装 conntrack（如未安装）
+apt-get install -y conntrack
+
+# 添加测试规则
+./natmgr add udp 20000-20005 :12345
+
+# 模拟 UDP 流量（在后台启动监听）
+nc -u -l -p 12345 &
+
+# 发送测试数据到转发端口
+echo "test" | nc -u -w1 127.0.0.1 20003
+sleep 1
+
+# 测试 trace 命令行入口
+./natmgr trace
+
+# 在交互菜单中测试：
+# 1. 运行 ./natmgr
+# 2. 选择 8) 查看转发日志跟踪
+# 3. 选择 1) 查看进入(IN)的流量
+# 4. 输入目标端口 12345
+# 5. 选择协议 UDP
+# 6. 验证显示包含 127.0.0.1 的连接信息
+
+# 测试 conntrack 管理菜单：
+# 1. 选择 4) 重新安装/管理 conntrack
+# 2. 验证显示当前版本
+# 3. 测试卸载功能（选择 2）
+# 4. 确认卸载后状态变为"未安装"
+# 5. 重新安装 conntrack（选择 1）
+```
+
+### 9. 安装脚本测试（如修改了 install.sh）
 
 ```bash
 # 在新容器中测试安装
@@ -283,7 +318,7 @@ natmgr save
 systemctl status nat-restore.service
 ```
 
-### 9. 边界情况测试
+### 10. 边界情况测试
 
 - 空规则时执行 `./natmgr save`（应提示无规则）
 - 无配置文件时执行 `./natmgr load`（应报错）
