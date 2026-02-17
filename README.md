@@ -25,7 +25,7 @@ Linux NAT 端口转发管理工具 - 基于 iptables 的简化封装，支持交
 ```bash
 # 安装完成后可删除克隆的项目代码
 git clone https://github.com/UselessWater/natmgr
-cd nat-manager
+cd natmgr
 sudo ./install.sh
 ```
 
