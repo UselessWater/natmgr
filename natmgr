@@ -110,9 +110,8 @@ log_msg() {
         log_size=$(stat -c "%s" "$LOG_FILE" 2>/dev/null) || log_size=$(stat -f "%z" "$LOG_FILE" 2>/dev/null) || log_size=0
         if [ "$log_size" -gt "$max_log_size" ]; then
             # Rotate log: remove .older, move .old to .older, current to .old
-            if [ -f "${LOG_FILE}.older" ]; then
-                rm -f "${LOG_FILE}.older" 2>/dev/null
-            fi
+            # Rotate log: remove .older first, then move .old to .older, current to .old
+            rm -f "${LOG_FILE}.older" 2>/dev/null
             if [ -f "${LOG_FILE}.old" ]; then
                 mv "${LOG_FILE}.old" "${LOG_FILE}.older" 2>/dev/null
             fi
