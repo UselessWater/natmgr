@@ -109,7 +109,10 @@ log_msg() {
         # Try GNU stat first (Linux), then BSD stat (macOS)
         log_size=$(stat -c "%s" "$LOG_FILE" 2>/dev/null) || log_size=$(stat -f "%z" "$LOG_FILE" 2>/dev/null) || log_size=0
         if [ "$log_size" -gt "$max_log_size" ]; then
-            # Rotate log: move .old to .older, current to .old
+            # Rotate log: remove .older, move .old to .older, current to .old
+            if [ -f "${LOG_FILE}.older" ]; then
+                rm -f "${LOG_FILE}.older" 2>/dev/null
+            fi
             if [ -f "${LOG_FILE}.old" ]; then
                 mv "${LOG_FILE}.old" "${LOG_FILE}.older" 2>/dev/null
             fi
@@ -225,7 +228,7 @@ validate_ip() {
     return 0
 }
 
-# Validate IPv6 address (basic validation)
+# Validate IPv6 address (enhanced validation)
 validate_ipv6() {
     local ip="$1"
 
@@ -237,38 +240,62 @@ validate_ipv6() {
         return 1
     fi
 
-    # Handle compressed notation (::)
+    # Check overall length (max 45 chars for IPv6: 8*4 + 7 + 1 for :: case)
+    if [ "${#ip}" -gt 45 ]; then
+        return 1
+    fi
+
+    # Reject if contains consecutive colons more than once (::)
     local compressed_count
     compressed_count=$(echo "$ip" | grep -o '::' | wc -l)
     if [ "$compressed_count" -gt 1 ]; then
         return 1
     fi
 
+    # Reject leading/trailing single colon (invalid format)
+    case "$ip" in
+        :[^:]*|*[^:]:)
+            # Check if it's just "::" which is valid
+            if [ "$ip" != "::" ]; then
+                return 1
+            fi
+            ;;
+    esac
+
     # Count groups (non-empty hex groups)
-    local group_count
+    local group_count=0
+    local has_compressed=0
+
     if echo "$ip" | grep -q '::'; then
-        # Compressed form - count actual hex groups (excluding the ::)
-        # Remove :: and count remaining groups
+        has_compressed=1
+        # Compressed form - count actual hex groups
+        # Replace :: with : and count remaining groups
         local normalized
         normalized=$(echo "$ip" | sed 's/::/:/')
         # Count non-empty hex groups
-        group_count=$(echo "$normalized" | tr ':' '\n' | grep -c '^[0-9a-fA-F]\+$' || echo 0)
-        # Compressed form must have 1-7 groups (at least one group must be compressed)
-        if [ "$group_count" -lt 1 ] || [ "$group_count" -gt 7 ]; then
+        group_count=$(echo "$normalized" | tr ':' '\n' | grep -c '^[0-9a-fA-F]\+$' 2>/dev/null || echo 0)
+        # Compressed form must have 0-7 groups (:: alone is valid, means all zeros)
+        if [ "$group_count" -gt 7 ]; then
             return 1
         fi
     else
         # Full form - must have exactly 7 colons (8 groups)
-        group_count=$(echo "$ip" | tr ':' '\n' | grep -c '^[0-9a-fA-F]\+$' || echo 0)
+        local colon_count
+        colon_count=$(echo "$ip" | tr -cd ':' | wc -c)
+        if [ "$colon_count" -ne 7 ]; then
+            return 1
+        fi
+        group_count=$(echo "$ip" | tr ':' '\n' | grep -c '^[0-9a-fA-F]\+$' 2>/dev/null || echo 0)
         if [ "$group_count" -ne 8 ]; then
             return 1
         fi
     fi
 
-    # Check each group is valid hex (1-4 chars)
+    # Check each group is valid hex (1-4 chars) and not more than 4 hex digits
     local group
     while IFS= read -r group; do
         if [ -n "$group" ]; then
+            # Must be 1-4 hex digits
             if ! echo "$group" | grep -qE '^[0-9a-fA-F]{1,4}$'; then
                 return 1
             fi
@@ -276,6 +303,21 @@ validate_ipv6() {
     done <<EOF
 $(echo "$ip" | tr ':' '\n')
 EOF
+
+    # Additional check: ensure no group has more than 4 hex digits
+    local all_groups_valid=1
+    while IFS= read -r group; do
+        if [ -n "$group" ] && [ "${#group}" -gt 4 ]; then
+            all_groups_valid=0
+            break
+        fi
+    done <<EOF
+$(echo "$ip" | awk -F'::?' '{for(i=1;i<=NF;i++) if($i!="") print $i}')
+EOF
+
+    if [ "$all_groups_valid" -eq 0 ]; then
+        return 1
+    fi
 
     return 0
 }
@@ -370,34 +412,44 @@ rule_exists() {
 # Check if source port is already in use by local service
 check_port_in_use() {
     local port_range="$1"
-    local check_port
+    local start_port
+    local end_port
+    local p
 
-    # Extract single port or start of range
-    check_port="$port_range"
-    if echo "$port_range" | grep -qE '^[0-9]+-'; then
-        check_port=$(echo "$port_range" | cut -d'-' -f1)
+    # Parse port range
+    if echo "$port_range" | grep -qE '^[0-9]+-[0-9]+$'; then
+        start_port=$(echo "$port_range" | cut -d'-' -f1)
+        end_port=$(echo "$port_range" | cut -d'-' -f2)
+    else
+        start_port="$port_range"
+        end_port="$port_range"
     fi
 
-    # Check if ss or netstat is available
-    if command -v ss >/dev/null 2>&1; then
-        # Check TCP port using exact match with word boundary
-        if ss -tuln 2>/dev/null | awk '{print $4}' | grep -Eq ":${check_port}$"; then
-            return 0
+    # Check each port in the range
+    p="$start_port"
+    while [ "$p" -le "$end_port" ]; do
+        # Check if ss or netstat is available
+        if command -v ss >/dev/null 2>&1; then
+            # Check TCP port using exact match with word boundary
+            if ss -tuln 2>/dev/null | awk '{print $4}' | grep -Eq ":${p}$"; then
+                return 0
+            fi
+            # Check UDP port using exact match with word boundary
+            if ss -ulpn 2>/dev/null | awk '{print $4}' | grep -Eq ":${p}$"; then
+                return 0
+            fi
+        elif command -v netstat >/dev/null 2>&1; then
+            # Check TCP port using exact match with word boundary
+            if netstat -tuln 2>/dev/null | awk '{print $4}' | grep -Eq ":${p}$"; then
+                return 0
+            fi
+            # Check UDP port using exact match with word boundary
+            if netstat -ulpn 2>/dev/null | awk '{print $4}' | grep -Eq ":${p}$"; then
+                return 0
+            fi
         fi
-        # Check UDP port using exact match with word boundary
-        if ss -ulpn 2>/dev/null | awk '{print $4}' | grep -Eq ":${check_port}$"; then
-            return 0
-        fi
-    elif command -v netstat >/dev/null 2>&1; then
-        # Check TCP port using exact match with word boundary
-        if netstat -tuln 2>/dev/null | awk '{print $4}' | grep -Eq ":${check_port}$"; then
-            return 0
-        fi
-        # Check UDP port using exact match with word boundary
-        if netstat -ulpn 2>/dev/null | awk '{print $4}' | grep -Eq ":${check_port}$"; then
-            return 0
-        fi
-    fi
+        p=$((p + 1))
+    done
     return 1
 }
 
@@ -985,6 +1037,8 @@ get_pkg_manager() {
         echo "yum"
     elif command -v dnf >/dev/null 2>&1; then
         echo "dnf"
+    elif command -v zypper >/dev/null 2>&1; then
+        echo "zypper"
     elif command -v pacman >/dev/null 2>&1; then
         echo "pacman"
     elif command -v apk >/dev/null 2>&1; then
@@ -999,7 +1053,7 @@ get_conntrack_pkg_name() {
         apt-get)
             echo "conntrack"
             ;;
-        yum|dnf)
+        yum|dnf|zypper)
             echo "conntrack-tools"
             ;;
         pacman)
@@ -1044,6 +1098,9 @@ uninstall_conntrack() {
                     ;;
                 dnf)
                     dnf remove -y "$pkg_name" && uninstall_success=1
+                    ;;
+                zypper)
+                    zypper remove -y "$pkg_name" && uninstall_success=1
                     ;;
                 pacman)
                     pacman -R --noconfirm "$pkg_name" && uninstall_success=1
@@ -1147,6 +1204,9 @@ install_conntrack() {
             ;;
         dnf)
             dnf install -y "$pkg_name" && install_success=1
+            ;;
+        zypper)
+            zypper install -y "$pkg_name" && install_success=1
             ;;
         pacman)
             pacman -S --noconfirm "$pkg_name" && install_success=1
@@ -1729,11 +1789,11 @@ HELP
 check_root
 check_dependencies
 
+# Ensure lock is released on exit and other signals (set before acquiring lock)
+trap release_lock EXIT INT TERM HUP
+
 # Acquire lock to prevent concurrent operations
 acquire_lock
-
-# Ensure lock is released on exit and other signals
-trap release_lock EXIT INT TERM HUP
 
 # Parse global options first
 while [ -n "$1" ] && echo "$1" | grep -q '^-'; do
@@ -1870,6 +1930,7 @@ case "$1" in
         ;;
     help|--help|-h)
         show_help
+        exit 0
         ;;
     *)
         if [ -t 0 ]; then
