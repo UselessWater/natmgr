@@ -413,7 +413,6 @@ check_port_in_use() {
     local port_range="$1"
     local start_port
     local end_port
-    local p
 
     # Parse port range
     if echo "$port_range" | grep -qE '^[0-9]+-[0-9]+$'; then
@@ -424,32 +423,28 @@ check_port_in_use() {
         end_port="$port_range"
     fi
 
-    # Check each port in the range
-    p="$start_port"
-    while [ "$p" -le "$end_port" ]; do
-        # Check if ss or netstat is available
-        if command -v ss >/dev/null 2>&1; then
-            # Check TCP port using exact match with word boundary
-            if ss -tuln 2>/dev/null | awk '{print $4}' | grep -Eq ":${p}$"; then
-                return 0
-            fi
-            # Check UDP port using exact match with word boundary
-            if ss -ulpn 2>/dev/null | awk '{print $4}' | grep -Eq ":${p}$"; then
-                return 0
-            fi
-        elif command -v netstat >/dev/null 2>&1; then
-            # Check TCP port using exact match with word boundary
-            if netstat -tuln 2>/dev/null | awk '{print $4}' | grep -Eq ":${p}$"; then
-                return 0
-            fi
-            # Check UDP port using exact match with word boundary
-            if netstat -ulpn 2>/dev/null | awk '{print $4}' | grep -Eq ":${p}$"; then
-                return 0
-            fi
+    # Get all used ports (once)
+    local used_ports=""
+
+    if command -v ss >/dev/null 2>&1; then
+        # Get TCP listening ports
+        used_ports=$(ss -tuln 2>/dev/null | awk '{print $4}' | grep -oE ':[0-9]+$' | cut -d':' -f2)
+        # Get UDP listening ports
+        used_ports="${used_ports} $(ss -ulpn 2>/dev/null | awk '{print $4}' | grep -oE ':[0-9]+$' | cut -d':' -f2 2>/dev/null)"
+    elif command -v netstat >/dev/null 2>&1; then
+        used_ports=$(netstat -tuln 2>/dev/null | awk '{print $4}' | grep -oE ':[0-9]+$' | cut -d':' -f2)
+        used_ports="${used_ports} $(netstat -ulpn 2>/dev/null | awk '{print $4}' | grep -oE ':[0-9]+$' | cut -d':' -f2 2>/dev/null)"
+    fi
+
+    # Check if any port in the range is used
+    local port
+    for port in $used_ports; do
+        if [ "$port" -ge "$start_port" ] && [ "$port" -le "$end_port" ]; then
+            return 0  # Port is in use
         fi
-        p=$((p + 1))
     done
-    return 1
+
+    return 1  # Port range is free
 }
 
 # Check if MASQUERADE rule exists
@@ -615,6 +610,19 @@ add_rule() {
 
     if ! validate_port_range "$src_port"; then
         return
+    fi
+
+    # Check port range size and add warning
+    if echo "$src_port" | grep -qE '^[0-9]+-[0-9]+$'; then
+        local start_port end_port range_size
+        start_port=$(echo "$src_port" | cut -d'-' -f1)
+        end_port=$(echo "$src_port" | cut -d'-' -f2)
+        range_size=$((end_port - start_port + 1))
+
+        # Warning for large range checks
+        if [ "$range_size" -gt 1000 ]; then
+            echo -e "${YELLOW}提示：检查 $range_size 个端口的占用情况可能需要几秒钟...${NC}"
+        fi
     fi
 
     # Check if port is already in use locally
